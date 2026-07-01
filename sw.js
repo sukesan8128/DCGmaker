@@ -1,4 +1,4 @@
-const CACHE_NAME = "dcgmaker-v11";
+const CACHE_NAME = "dcgmaker-v13";
 
 const CORE_ASSETS = [
   "./",
