@@ -41,6 +41,9 @@ const exportModeOptions: Array<{ value: ExportMode; label: string }> = [
   { value: "flavor", label: "全体" },
 ];
 
+const CARD_ARTWORK_WIDTH = 572;
+const CARD_ARTWORK_HEIGHT = 792;
+
 const typeLabels: Record<CardType, string> = {
   monster: "ユニット",
   spell: "スペル",
@@ -278,9 +281,28 @@ export default function App() {
     }
 
     const rect = el.getBoundingClientRect();
-    const offsetX = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    const offsetY = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
-    setDraft((current) => ({ ...current, artworkOffsetX: offsetX, artworkOffsetY: offsetY }));
+    const centerX = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const centerY = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+    if (!artworkImage) {
+      setDraft((current) => ({
+        ...current,
+        artworkOffsetX: centerX,
+        artworkOffsetY: centerY,
+      }));
+      return;
+    }
+
+    const offset = getArtworkOffsetFromCenter(
+      artworkImage,
+      centerX,
+      centerY,
+      draft.artworkScale ?? 1,
+    );
+    setDraft((current) => ({
+      ...current,
+      artworkOffsetX: offset.x,
+      artworkOffsetY: offset.y,
+    }));
   };
 
   const startArtworkOffsetDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -364,7 +386,7 @@ export default function App() {
       if (
         isMobileDevice() &&
         typeof navigatorWithShare.share === "function" &&
-        navigatorWithShare.canShare?.(shareData)
+        canShareFile(navigatorWithShare, shareData)
       ) {
         try {
           await navigatorWithShare.share?.(shareData);
@@ -375,6 +397,11 @@ export default function App() {
           }
           console.error("Failed to share PNG image", error);
         }
+      }
+
+      if (isMobileDevice() && openBlobInNewTab(blob)) {
+        window.alert("画像を新しいタブで開きました。共有メニューまたは長押しで保存してください。");
+        return;
       }
 
       downloadBlob(blob, fileName);
@@ -427,6 +454,43 @@ export default function App() {
     window.addEventListener("pointerup", stopResize);
     window.addEventListener("pointercancel", stopResize);
   };
+
+  const updateArtworkScale = (scale: number) => {
+    setDraft((current) => {
+      if (!artworkImage) {
+        return { ...current, artworkScale: scale };
+      }
+
+      const center = getArtworkCenterFromOffset(
+        artworkImage,
+        current.artworkOffsetX ?? 0.5,
+        current.artworkOffsetY ?? 0.5,
+        current.artworkScale ?? 1,
+      );
+      const offset = getArtworkOffsetFromCenter(
+        artworkImage,
+        center.x,
+        center.y,
+        scale,
+      );
+
+      return {
+        ...current,
+        artworkScale: scale,
+        artworkOffsetX: offset.x,
+        artworkOffsetY: offset.y,
+      };
+    });
+  };
+
+  const artworkCenter = artworkImage
+    ? getArtworkCenterFromOffset(
+        artworkImage,
+        draft.artworkOffsetX ?? 0.5,
+        draft.artworkOffsetY ?? 0.5,
+        draft.artworkScale ?? 1,
+      )
+    : { x: draft.artworkOffsetX ?? 0.5, y: draft.artworkOffsetY ?? 0.5 };
 
   return (
     <main className="app-shell">
@@ -704,8 +768,8 @@ export default function App() {
                 <div
                   className="artwork-position-marker"
                   style={{
-                    left: `${(draft.artworkOffsetX ?? 0.5) * 100}%`,
-                    top: `${(draft.artworkOffsetY ?? 0.5) * 100}%`,
+                    left: `${artworkCenter.x * 100}%`,
+                    top: `${artworkCenter.y * 100}%`,
                   }}
                 />
               </div>
@@ -723,7 +787,7 @@ export default function App() {
                   type="range"
                   value={draft.artworkScale ?? 1}
                   onChange={(event) =>
-                    updateDraft("artworkScale", Number.parseFloat(event.target.value))
+                    updateArtworkScale(Number.parseFloat(event.target.value))
                   }
                 />
                 <span className="artwork-zoom-value">
@@ -953,12 +1017,116 @@ function downloadBlob(blob: Blob, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
+function openBlobInNewTab(blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    URL.revokeObjectURL(url);
+    return false;
+  }
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return true;
+}
+
+function canShareFile(
+  navigatorWithShare: NavigatorWithFileShare,
+  shareData: ShareDataWithFiles,
+) {
+  if (typeof navigatorWithShare.canShare !== "function") {
+    return true;
+  }
+
+  try {
+    return navigatorWithShare.canShare(shareData);
+  } catch {
+    return false;
+  }
+}
+
 function isMobileDevice() {
   return (
     /Android|iPhone|iPad|iPod|Mobile/i.test(window.navigator.userAgent) ||
     (window.navigator.userAgent.includes("Macintosh") &&
       window.navigator.maxTouchPoints > 1)
   );
+}
+
+function getArtworkCenterFromOffset(
+  image: HTMLImageElement,
+  offsetX: number,
+  offsetY: number,
+  scale: number,
+) {
+  const geometry = getArtworkCoverGeometry(image, scale);
+  return {
+    x: clamp(
+      (CARD_ARTWORK_WIDTH / 2 - geometry.slackX * offsetX) / geometry.drawWidth,
+      0,
+      1,
+    ),
+    y: clamp(
+      (CARD_ARTWORK_HEIGHT / 2 - geometry.slackY * offsetY) / geometry.drawHeight,
+      0,
+      1,
+    ),
+  };
+}
+
+function getArtworkOffsetFromCenter(
+  image: HTMLImageElement,
+  centerX: number,
+  centerY: number,
+  scale: number,
+) {
+  const geometry = getArtworkCoverGeometry(image, scale);
+  return {
+    x: solveOffset(CARD_ARTWORK_WIDTH, geometry.drawWidth, geometry.slackX, centerX),
+    y: solveOffset(CARD_ARTWORK_HEIGHT, geometry.drawHeight, geometry.slackY, centerY),
+  };
+}
+
+function getArtworkCoverGeometry(image: HTMLImageElement, scale: number) {
+  const imageRatio = image.naturalWidth / image.naturalHeight;
+  const targetRatio = CARD_ARTWORK_WIDTH / CARD_ARTWORK_HEIGHT;
+  let coverWidth = CARD_ARTWORK_WIDTH;
+  let coverHeight = CARD_ARTWORK_HEIGHT;
+
+  if (imageRatio > targetRatio) {
+    coverHeight = CARD_ARTWORK_HEIGHT;
+    coverWidth = CARD_ARTWORK_HEIGHT * imageRatio;
+  } else {
+    coverWidth = CARD_ARTWORK_WIDTH;
+    coverHeight = CARD_ARTWORK_WIDTH / imageRatio;
+  }
+
+  const safeScale = Math.max(0.1, scale);
+  const drawWidth = coverWidth * safeScale;
+  const drawHeight = coverHeight * safeScale;
+
+  return {
+    drawWidth,
+    drawHeight,
+    slackX: CARD_ARTWORK_WIDTH - drawWidth,
+    slackY: CARD_ARTWORK_HEIGHT - drawHeight,
+  };
+}
+
+function solveOffset(
+  targetSize: number,
+  drawSize: number,
+  slack: number,
+  center: number,
+) {
+  if (Math.abs(slack) < 0.0001) {
+    return 0.5;
+  }
+
+  return clamp((targetSize / 2 - center * drawSize) / slack, 0, 1);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function createFileName(name: string) {
