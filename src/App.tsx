@@ -52,12 +52,14 @@ const typeLabels: Record<CardType, string> = {
   field: "フィールド",
 };
 
-const rarityLabels: Record<Rarity, string> = {
-  bronze: "ブロンズ",
-  silver: "シルバー",
-  gold: "ゴールド",
-  legendary: "レジェンド",
-};
+const nationOptions = [
+  "ユニバーサル",
+  "ハルシオン",
+  "バルハザーク",
+  "イカロスフィア",
+] as const;
+
+const customNationValue = "__custom";
 
 const rarityAccentColors: Record<Rarity, { accent: string; soft: string; dark: string }> =
   {
@@ -67,32 +69,34 @@ const rarityAccentColors: Record<Rarity, { accent: string; soft: string; dark: s
     legendary: { accent: "#f6f2ff", soft: "#fffdf3", dark: "#8d73df" },
   };
 
+const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path}`;
+
 const generatedAssetPaths = {
-  sceneBackground: "/assets/generated/scene-background.png",
+  sceneBackground: assetPath("assets/generated/scene-background.png"),
   frames: {
     monster: {
-      bronze: "/assets/generated/frame-monster-bronze.png",
-      silver: "/assets/generated/frame-monster-silver.png",
-      gold: "/assets/generated/frame-monster-gold.png",
-      legendary: "/assets/generated/frame-monster-legendary.png",
+      bronze: assetPath("assets/generated/frame-monster-bronze.png"),
+      silver: assetPath("assets/generated/frame-monster-silver.png"),
+      gold: assetPath("assets/generated/frame-monster-gold.png"),
+      legendary: assetPath("assets/generated/frame-monster-legendary.png"),
     },
     spell: {
-      bronze: "/assets/generated/frame-spell-bronze.png",
-      silver: "/assets/generated/frame-spell-silver.png",
-      gold: "/assets/generated/frame-spell-gold.png",
-      legendary: "/assets/generated/frame-spell-legendary.png",
+      bronze: assetPath("assets/generated/frame-spell-bronze.png"),
+      silver: assetPath("assets/generated/frame-spell-silver.png"),
+      gold: assetPath("assets/generated/frame-spell-gold.png"),
+      legendary: assetPath("assets/generated/frame-spell-legendary.png"),
     },
     field: {
-      bronze: "/assets/generated/frame-field-bronze.png",
-      silver: "/assets/generated/frame-field-silver.png",
-      gold: "/assets/generated/frame-field-gold.png",
-      legendary: "/assets/generated/frame-field-legendary.png",
+      bronze: assetPath("assets/generated/frame-field-bronze.png"),
+      silver: assetPath("assets/generated/frame-field-silver.png"),
+      gold: assetPath("assets/generated/frame-field-gold.png"),
+      legendary: assetPath("assets/generated/frame-field-legendary.png"),
     },
   },
   status: {
-    mana: "/assets/generated/status-mana.png",
-    attack: "/assets/generated/status-attack.png",
-    hp: "/assets/generated/status-hp.png",
+    mana: assetPath("assets/generated/status-mana.png"),
+    attack: assetPath("assets/generated/status-attack.png"),
+    hp: assetPath("assets/generated/status-hp.png"),
   },
 } satisfies {
   sceneBackground: string;
@@ -112,6 +116,7 @@ const defaultDraft: CardDraft = {
   showEffectText: true,
   showFlavorText: true,
   rarity: "silver",
+  nation: "ユニバーサル",
   className: "",
 };
 
@@ -360,6 +365,11 @@ export default function App() {
   const workspaceStyle = {
     "--editor-width": `${editorWidth}px`,
   } as CSSProperties;
+  const selectedNation = nationOptions.includes(
+    draft.nation as (typeof nationOptions)[number],
+  )
+    ? draft.nation
+    : customNationValue;
 
   const startEditorResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -398,20 +408,6 @@ export default function App() {
           <h1>カード画像生成</h1>
         </div>
         <div className="export-actions">
-          <label className="topbar-select" htmlFor="topbar-export-mode">
-            <span>画像出力</span>
-            <select
-              id="topbar-export-mode"
-              value={exportMode}
-              onChange={(event) => setExportMode(event.target.value as ExportMode)}
-            >
-              {exportModeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
           <input
             accept="application/json"
             className="file-input"
@@ -503,21 +499,6 @@ export default function App() {
             </div>
           </div>
 
-          <div className="control-group">
-            <label htmlFor="export-mode">画像出力</label>
-            <select
-              id="export-mode"
-              value={exportMode}
-              onChange={(event) => setExportMode(event.target.value as ExportMode)}
-            >
-              {exportModeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {draft.type === "monster" ? (
             <div className="control-grid">
               <div className="control-group">
@@ -545,6 +526,40 @@ export default function App() {
           ) : null}
 
           <div className="control-group">
+            <label htmlFor="card-nation">国家</label>
+            <select
+              id="card-nation"
+              value={selectedNation}
+              onChange={(event) => {
+                const value = event.target.value;
+                updateDraft(
+                  "nation",
+                  value === customNationValue ? "" : value,
+                );
+              }}
+            >
+              {nationOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+              <option value={customNationValue}>任意入力</option>
+            </select>
+          </div>
+
+          {selectedNation === customNationValue ? (
+            <div className="control-group">
+              <label htmlFor="card-nation-custom">国家名</label>
+              <input
+                id="card-nation-custom"
+                value={draft.nation}
+                onChange={(event) => updateDraft("nation", event.target.value)}
+                placeholder="国家名"
+              />
+            </div>
+          ) : null}
+
+          <div className="control-group">
             <label htmlFor="card-class">分類</label>
             <input
               id="card-class"
@@ -562,6 +577,17 @@ export default function App() {
               value={draft.text}
               onChange={(event) => updateDraft("text", event.target.value)}
               placeholder="カード効果"
+            />
+          </div>
+
+          <div className="control-group">
+            <label htmlFor="card-flavor">フレーバーテキスト</label>
+            <textarea
+              id="card-flavor"
+              rows={3}
+              value={draft.flavorText}
+              onChange={(event) => updateDraft("flavorText", event.target.value)}
+              placeholder=""
             />
           </div>
 
@@ -596,17 +622,6 @@ export default function App() {
               />
               フレーバーを表示
             </label>
-          </div>
-
-          <div className="control-group">
-            <label htmlFor="card-flavor">フレーバーテキスト</label>
-            <textarea
-              id="card-flavor"
-              rows={3}
-              value={draft.flavorText}
-              onChange={(event) => updateDraft("flavorText", event.target.value)}
-              placeholder=""
-            />
           </div>
 
           <div className="asset-actions">
@@ -688,6 +703,21 @@ export default function App() {
               </label>
             </div>
           ) : null}
+
+          <div className="control-group">
+            <label htmlFor="export-mode">画像出力</label>
+            <select
+              id="export-mode"
+              value={exportMode}
+              onChange={(event) => setExportMode(event.target.value as ExportMode)}
+            >
+              {exportModeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </section>
 
         <button
@@ -740,16 +770,16 @@ export default function App() {
                       <dt>種類</dt>
                       <dd>{typeLabels[draft.type]}</dd>
                     </div>
+                    <div>
+                      <dt>国家</dt>
+                      <dd>{draft.nation.trim() || "ユニバーサル"}</dd>
+                    </div>
                     {draft.showClassName ? (
                       <div>
                         <dt>分類</dt>
                         <dd>{draft.className.trim() || "未設定"}</dd>
                       </div>
                     ) : null}
-                    <div>
-                      <dt>レアリティ</dt>
-                      <dd>{rarityLabels[draft.rarity]}</dd>
-                    </div>
                   </dl>
 
                   {draft.showEffectText ? (

@@ -6,7 +6,7 @@ import {
   drawCard,
   type RarityStyle,
 } from "./cardRenderer";
-import type { CardDraft, CardType, Rarity, RenderAssets } from "./types";
+import type { CardDraft, CardType, RenderAssets } from "./types";
 
 export type ExportMode = "card" | "flavor";
 
@@ -26,13 +26,6 @@ const TYPE_LABELS: Record<CardType, string> = {
   monster: "ユニット",
   spell: "スペル",
   field: "フィールド",
-};
-
-const RARITY_LABELS: Record<Rarity, string> = {
-  bronze: "ブロンズ",
-  silver: "シルバー",
-  gold: "ゴールド",
-  legendary: "レジェンド",
 };
 
 const INFO_ROW_HEIGHT = 56;
@@ -399,7 +392,7 @@ function drawLoreHeader(
       ctx,
       title,
       x + 62,
-      y + 26,
+      y + 18,
       width - 124,
       44,
       26,
@@ -408,7 +401,7 @@ function drawLoreHeader(
     );
   }
 
-  const lineY = y + 44;
+  const lineY = y + 50;
   ctx.strokeStyle = LORE_ACCENT;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -416,7 +409,7 @@ function drawLoreHeader(
   ctx.lineTo(x + width, lineY);
   ctx.stroke();
 
-  drawCenterOrnament(ctx, x + width / 2, lineY, LORE_ACCENT);
+  drawCenterOrnament(ctx, x + width / 2 + 24, lineY, LORE_ACCENT);
 }
 
 function drawInfoRows(
@@ -429,8 +422,8 @@ function drawInfoRows(
 ) {
   const rows = [
     ["種類", TYPE_LABELS[draft.type]],
+    ["国家", draft.nation.trim() || "ユニバーサル"],
     draft.showClassName ? ["分類", draft.className.trim()] : null,
-    ["レアリティ", RARITY_LABELS[draft.rarity]],
   ].filter((row): row is [string, string] => Boolean(row));
 
   rows.forEach(([label, value], index) => {

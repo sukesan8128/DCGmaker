@@ -14,6 +14,7 @@ export type CardDraft = {
   showEffectText: boolean;
   showFlavorText: boolean;
   rarity: Rarity;
+  nation: string;
   className: string;
   artworkDataUrl?: string;
   artworkOffsetX?: number;
