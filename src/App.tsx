@@ -10,7 +10,6 @@ import {
   FileDown,
   FileUp,
   ImagePlus,
-  Landmark,
   Palette,
   Trash2,
   Upload,
@@ -24,14 +23,10 @@ import {
 } from "./exportRenderer";
 import type { CardDraft, CardType, Rarity, RenderAssets } from "./types";
 
-const typeOptions: Array<{
-  value: CardType;
-  label: string;
-  icon?: typeof Landmark;
-}> = [
+const typeOptions: Array<{ value: CardType; label: string }> = [
   { value: "monster", label: "ユニット" },
   { value: "spell", label: "スペル" },
-  { value: "field", label: "フィールド", icon: Landmark },
+  { value: "field", label: "フィールド" },
 ];
 
 const rarityOptions: Array<{ value: Rarity; label: string }> = [
@@ -124,6 +119,7 @@ export default function App() {
   const [draft, setDraft] = useState<CardDraft>(defaultDraft);
   const [exportMode, setExportMode] = useState<ExportMode>("flavor");
   const [editorWidth, setEditorWidth] = useState(360);
+  const [isExportingImage, setIsExportingImage] = useState(false);
   const [artworkImage, setArtworkImage] = useState<HTMLImageElement | null>(null);
   const [artworkPreviewUrl, setArtworkPreviewUrl] = useState<string | null>(null);
   const [renderAssets, setRenderAssets] = useState<RenderAssets>({});
@@ -346,16 +342,48 @@ export default function App() {
     }
   };
 
-  const downloadPng = () => {
+  const downloadPng = async () => {
+    if (isExportingImage) {
+      return;
+    }
+
+    setIsExportingImage(true);
     const exportCanvas = document.createElement("canvas");
     renderCanvas(exportCanvas, draft, artworkImage, exportMode, renderAssets);
 
-    const link = document.createElement("a");
-    link.href = exportCanvas.toDataURL("image/png");
-    link.download = `${createFileName(draft.name)}${
+    const fileName = `${createFileName(draft.name)}${
       exportMode === "flavor" ? "-all" : ""
     }.png`;
-    link.click();
+
+    try {
+      const blob = await canvasToPngBlob(exportCanvas);
+      const file = new File([blob], fileName, { type: "image/png" });
+      const shareData: ShareDataWithFiles = { files: [file], title: fileName };
+      const navigatorWithShare = window.navigator as NavigatorWithFileShare;
+
+      if (
+        isMobileDevice() &&
+        typeof navigatorWithShare.share === "function" &&
+        navigatorWithShare.canShare?.(shareData)
+      ) {
+        try {
+          await navigatorWithShare.share?.(shareData);
+          return;
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          console.error("Failed to share PNG image", error);
+        }
+      }
+
+      downloadBlob(blob, fileName);
+    } catch (error) {
+      console.error("Failed to export PNG image", error);
+      window.alert("PNG画像の書き出しに失敗しました。もう一度お試しください。");
+    } finally {
+      setIsExportingImage(false);
+    }
   };
 
   const exportSizeLabel =
@@ -427,9 +455,14 @@ export default function App() {
             <FileDown aria-hidden="true" size={18} />
             データ書き出し
           </button>
-          <button className="primary-action" type="button" onClick={downloadPng}>
+          <button
+            className="primary-action"
+            disabled={isExportingImage}
+            type="button"
+            onClick={downloadPng}
+          >
             <Download aria-hidden="true" size={20} />
-            PNG書き出し
+            {isExportingImage ? "書き出し中" : "PNG書き出し"}
           </button>
         </div>
       </header>
@@ -454,20 +487,16 @@ export default function App() {
           <div className="control-group">
             <span className="field-label">カード種類</span>
             <div className="segmented-control" role="group" aria-label="カード種類">
-              {typeOptions.map((option) => {
-                const Icon = option.icon;
-                return (
-                  <button
-                    className={draft.type === option.value ? "is-selected" : ""}
-                    key={option.value}
-                    type="button"
-                    onClick={() => updateDraft("type", option.value)}
-                  >
-                    {Icon ? <Icon aria-hidden="true" size={18} /> : null}
-                    {option.label}
-                  </button>
-                );
-              })}
+              {typeOptions.map((option) => (
+                <button
+                  className={draft.type === option.value ? "is-selected" : ""}
+                  key={option.value}
+                  type="button"
+                  onClick={() => updateDraft("type", option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -636,9 +665,9 @@ export default function App() {
               <ImagePlus aria-hidden="true" size={19} />
               イラスト選択
             </button>
-            <button type="button" onClick={downloadPng}>
+            <button type="button" disabled={isExportingImage} onClick={downloadPng}>
               <Upload aria-hidden="true" size={19} />
-              保存
+              {isExportingImage ? "保存中" : "保存"}
             </button>
           </div>
 
@@ -862,6 +891,74 @@ function renderCanvas(
     ctx.fillStyle = fill;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
+}
+
+type ShareDataWithFiles = ShareData & {
+  files: File[];
+};
+
+type NavigatorWithFileShare = Navigator & {
+  canShare?: (data: ShareDataWithFiles) => boolean;
+  share?: (data: ShareDataWithFiles) => Promise<void>;
+};
+
+function canvasToPngBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    if (canvas.toBlob) {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+        reject(new Error("Canvas returned an empty PNG blob."));
+      }, "image/png");
+      return;
+    }
+
+    try {
+      resolve(dataUrlToBlob(canvas.toDataURL("image/png")));
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error("Failed to export canvas."));
+    }
+  });
+}
+
+function dataUrlToBlob(dataUrl: string) {
+  const [metadata, payload] = dataUrl.split(",");
+  if (!metadata || !payload) {
+    throw new Error("Invalid image data URL.");
+  }
+
+  const mimeMatch = metadata.match(/^data:([^;]+);base64$/);
+  const mime = mimeMatch?.[1] ?? "application/octet-stream";
+  const binary = window.atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: mime });
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+function isMobileDevice() {
+  return (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(window.navigator.userAgent) ||
+    (window.navigator.userAgent.includes("Macintosh") &&
+      window.navigator.maxTouchPoints > 1)
+  );
 }
 
 function createFileName(name: string) {
