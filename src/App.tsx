@@ -9,8 +9,10 @@ import {
   Download,
   FileDown,
   FileUp,
+  FolderOpen,
   ImagePlus,
   Palette,
+  Save,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -43,6 +45,7 @@ const exportModeOptions: Array<{ value: ExportMode; label: string }> = [
 
 const CARD_ARTWORK_WIDTH = 572;
 const CARD_ARTWORK_HEIGHT = 792;
+const SAVED_CARDS_STORAGE_KEY = "dcgmaker.savedCards.v1";
 
 const typeLabels: Record<CardType, string> = {
   monster: "ユニット",
@@ -118,11 +121,25 @@ const defaultDraft: CardDraft = {
   className: "",
 };
 
+type SavedCardEntry = {
+  id: string;
+  name: string;
+  type: CardType;
+  rarity: Rarity;
+  updatedAt: number;
+  draft: CardDraft;
+};
+
 export default function App() {
   const [draft, setDraft] = useState<CardDraft>(defaultDraft);
   const [exportMode, setExportMode] = useState<ExportMode>("flavor");
   const [editorWidth, setEditorWidth] = useState(360);
   const [isExportingImage, setIsExportingImage] = useState(false);
+  const [savedCards, setSavedCards] = useState<SavedCardEntry[]>(
+    loadSavedCardsFromBrowser,
+  );
+  const [selectedSavedCardId, setSelectedSavedCardId] = useState("");
+  const [libraryStatus, setLibraryStatus] = useState("");
   const [artworkImage, setArtworkImage] = useState<HTMLImageElement | null>(null);
   const [artworkPreviewUrl, setArtworkPreviewUrl] = useState<string | null>(null);
   const [renderAssets, setRenderAssets] = useState<RenderAssets>({});
@@ -351,7 +368,9 @@ export default function App() {
         if (typeof parsed !== "object" || parsed === null) {
           throw new Error("invalid card data");
         }
-        setDraft({ ...defaultDraft, ...(parsed as Partial<CardDraft>) });
+        setDraft(normalizeCardDraft(parsed));
+        setSelectedSavedCardId("");
+        setLibraryStatus("読み込みました");
       } catch (error) {
         console.error("Failed to import card data", error);
         window.alert("データの読み込みに失敗しました。ファイル形式を確認してください。");
@@ -361,6 +380,67 @@ export default function App() {
 
     if (dataFileInputRef.current) {
       dataFileInputRef.current.value = "";
+    }
+  };
+
+  const persistSavedCards = (entries: SavedCardEntry[]) => {
+    writeSavedCardsToBrowser(entries);
+    setSavedCards(entries);
+  };
+
+  const saveDraftToBrowser = () => {
+    const existingEntry = savedCards.find(
+      (entry) => entry.id === selectedSavedCardId,
+    );
+    const entryId = existingEntry?.id ?? createSavedCardId();
+    const entry = createSavedCardEntry(entryId, draft);
+    const nextCards = existingEntry
+      ? [entry, ...savedCards.filter((card) => card.id !== entryId)]
+      : [entry, ...savedCards];
+
+    try {
+      persistSavedCards(nextCards);
+      setSelectedSavedCardId(entryId);
+      setLibraryStatus("保存しました");
+    } catch (error) {
+      console.error("Failed to save card data in browser", error);
+      window.alert("ブラウザへの保存に失敗しました。保存容量を確認してください。");
+    }
+  };
+
+  const loadSelectedSavedCard = () => {
+    const selectedEntry = savedCards.find(
+      (entry) => entry.id === selectedSavedCardId,
+    );
+    if (!selectedEntry) {
+      return;
+    }
+
+    setDraft(normalizeCardDraft(selectedEntry.draft));
+    setLibraryStatus("読み込みました");
+  };
+
+  const deleteSelectedSavedCard = () => {
+    const selectedEntry = savedCards.find(
+      (entry) => entry.id === selectedSavedCardId,
+    );
+    if (!selectedEntry) {
+      return;
+    }
+
+    const confirmed = window.confirm(`${selectedEntry.name}を削除しますか？`);
+    if (!confirmed) {
+      return;
+    }
+
+    const nextCards = savedCards.filter((entry) => entry.id !== selectedEntry.id);
+    try {
+      persistSavedCards(nextCards);
+      setSelectedSavedCardId("");
+      setLibraryStatus("削除しました");
+    } catch (error) {
+      console.error("Failed to delete saved card data", error);
+      window.alert("保存カードの削除に失敗しました。もう一度お試しください。");
     }
   };
 
@@ -536,6 +616,51 @@ export default function App() {
           <div className="section-heading">
             <Palette aria-hidden="true" size={20} />
             <h2>編集</h2>
+          </div>
+
+          <div className="library-panel">
+            <label htmlFor="saved-card-select">保存カード</label>
+            <select
+              id="saved-card-select"
+              value={selectedSavedCardId}
+              onChange={(event) => {
+                setSelectedSavedCardId(event.target.value);
+                setLibraryStatus("");
+              }}
+            >
+              <option value="">新しく保存</option>
+              {savedCards.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {formatSavedCardOption(entry)}
+                </option>
+              ))}
+            </select>
+            <div className="library-actions">
+              <button type="button" onClick={saveDraftToBrowser}>
+                <Save aria-hidden="true" size={17} />
+                保存
+              </button>
+              <button
+                type="button"
+                disabled={!selectedSavedCardId}
+                onClick={loadSelectedSavedCard}
+              >
+                <FolderOpen aria-hidden="true" size={17} />
+                読み込み
+              </button>
+              <button
+                className="library-delete-button"
+                type="button"
+                disabled={!selectedSavedCardId}
+                onClick={deleteSelectedSavedCard}
+              >
+                <Trash2 aria-hidden="true" size={17} />
+                削除
+              </button>
+            </div>
+            <p className="library-status" aria-live="polite">
+              {libraryStatus}
+            </p>
           </div>
 
           <div className="control-group">
@@ -955,6 +1080,156 @@ function renderCanvas(
     ctx.fillStyle = fill;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
+}
+
+function loadSavedCardsFromBrowser() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(SAVED_CARDS_STORAGE_KEY);
+    if (!rawValue) {
+      return [];
+    }
+
+    const parsed: unknown = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map(normalizeSavedCardEntry)
+      .filter((entry): entry is SavedCardEntry => entry !== null)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch (error) {
+    console.error("Failed to load saved cards from browser", error);
+    return [];
+  }
+}
+
+function writeSavedCardsToBrowser(entries: SavedCardEntry[]) {
+  window.localStorage.setItem(SAVED_CARDS_STORAGE_KEY, JSON.stringify(entries));
+}
+
+function normalizeSavedCardEntry(value: unknown): SavedCardEntry | null {
+  if (!isObjectRecord(value) || typeof value.id !== "string") {
+    return null;
+  }
+
+  const draft = normalizeCardDraft(value.draft);
+  const updatedAt = toFiniteNumber(value.updatedAt, Date.now());
+  return {
+    id: value.id,
+    name: typeof value.name === "string" ? value.name : getDraftDisplayName(draft),
+    type: isCardType(value.type) ? value.type : draft.type,
+    rarity: isRarity(value.rarity) ? value.rarity : draft.rarity,
+    updatedAt,
+    draft,
+  };
+}
+
+function normalizeCardDraft(value: unknown): CardDraft {
+  const source = isObjectRecord(value) ? value : {};
+  const artworkDataUrl =
+    typeof source.artworkDataUrl === "string" ? source.artworkDataUrl : undefined;
+  const artworkOffsetX = toOptionalFiniteNumber(source.artworkOffsetX);
+  const artworkOffsetY = toOptionalFiniteNumber(source.artworkOffsetY);
+  const artworkScale = toOptionalFiniteNumber(source.artworkScale);
+
+  return {
+    name: toStringValue(source.name, defaultDraft.name),
+    type: isCardType(source.type) ? source.type : defaultDraft.type,
+    cost: Math.max(0, Math.round(toFiniteNumber(source.cost, defaultDraft.cost))),
+    attack: Math.max(
+      0,
+      Math.round(toFiniteNumber(source.attack, defaultDraft.attack)),
+    ),
+    hp: Math.max(0, Math.round(toFiniteNumber(source.hp, defaultDraft.hp))),
+    text: toStringValue(source.text, defaultDraft.text),
+    flavorText: toStringValue(source.flavorText, defaultDraft.flavorText),
+    showClassName: toBooleanValue(source.showClassName, defaultDraft.showClassName),
+    showEffectText: toBooleanValue(source.showEffectText, defaultDraft.showEffectText),
+    showFlavorText: toBooleanValue(source.showFlavorText, defaultDraft.showFlavorText),
+    rarity: isRarity(source.rarity) ? source.rarity : defaultDraft.rarity,
+    nation: toStringValue(source.nation, defaultDraft.nation),
+    className: toStringValue(source.className, defaultDraft.className),
+    ...(artworkDataUrl ? { artworkDataUrl } : {}),
+    ...(artworkOffsetX === undefined ? {} : { artworkOffsetX: clamp(artworkOffsetX, 0, 1) }),
+    ...(artworkOffsetY === undefined ? {} : { artworkOffsetY: clamp(artworkOffsetY, 0, 1) }),
+    ...(artworkScale === undefined ? {} : { artworkScale: Math.max(0.1, artworkScale) }),
+  };
+}
+
+function createSavedCardEntry(id: string, draft: CardDraft): SavedCardEntry {
+  const normalizedDraft = normalizeCardDraft(draft);
+  return {
+    id,
+    name: getDraftDisplayName(normalizedDraft),
+    type: normalizedDraft.type,
+    rarity: normalizedDraft.rarity,
+    updatedAt: Date.now(),
+    draft: normalizedDraft,
+  };
+}
+
+function createSavedCardId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatSavedCardOption(entry: SavedCardEntry) {
+  const updatedAt = new Date(entry.updatedAt);
+  const timestamp = Number.isNaN(updatedAt.getTime())
+    ? ""
+    : updatedAt.toLocaleString("ja-JP", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+  return `${entry.name} / ${typeLabels[entry.type]}${timestamp ? ` / ${timestamp}` : ""}`;
+}
+
+function getDraftDisplayName(draft: CardDraft) {
+  return draft.name.trim() || "無題のカード";
+}
+
+function isCardType(value: unknown): value is CardType {
+  return value === "monster" || value === "spell" || value === "field";
+}
+
+function isRarity(value: unknown): value is Rarity {
+  return (
+    value === "bronze" ||
+    value === "silver" ||
+    value === "gold" ||
+    value === "legendary"
+  );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toStringValue(value: unknown, fallback: string) {
+  return typeof value === "string" ? value : fallback;
+}
+
+function toBooleanValue(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function toFiniteNumber(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function toOptionalFiniteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 type ShareDataWithFiles = ShareData & {

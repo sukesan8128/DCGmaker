@@ -84,6 +84,7 @@ button {
 .primary-action,
 .secondary-action,
 .asset-actions button,
+.library-actions button,
 .segmented-control button,
 .preset-row button {
   align-items: center;
@@ -239,6 +240,52 @@ button {
 .control-group {
   display: grid;
   gap: 8px;
+}
+
+.library-panel {
+  border-bottom: 1px solid rgba(55, 64, 82, 0.12);
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.library-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.library-actions button {
+  background: #ffffff;
+  border-color: #c9ced8;
+  color: #2f343f;
+  font-size: 0.86rem;
+  font-weight: 700;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.library-actions button:hover:not(:disabled) {
+  background: #eef1f6;
+}
+
+.library-actions button:disabled {
+  color: #9aa3b2;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.library-delete-button:not(:disabled) {
+  color: #a02a24;
+}
+
+.library-status {
+  color: #506176;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+  min-height: 1.1rem;
 }
 
 .control-grid {
