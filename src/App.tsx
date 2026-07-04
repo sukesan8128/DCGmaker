@@ -12,6 +12,7 @@ import {
   FolderOpen,
   ImagePlus,
   Palette,
+  RotateCcw,
   Save,
   Trash2,
   Upload,
@@ -420,6 +421,23 @@ export default function App() {
     setLibraryStatus("読み込みました");
   };
 
+  const resetDraftForNewInput = () => {
+    const confirmed = window.confirm(
+      "現在の入力内容をリセットしますか？保存カードは削除されません。",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDraft({ ...defaultDraft });
+    setSelectedSavedCardId("");
+    setLibraryStatus("入力をリセットしました");
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const deleteSelectedSavedCard = () => {
     const selectedEntry = savedCards.find(
       (entry) => entry.id === selectedSavedCardId,
@@ -639,6 +657,10 @@ export default function App() {
               <button type="button" onClick={saveDraftToBrowser}>
                 <Save aria-hidden="true" size={17} />
                 保存
+              </button>
+              <button type="button" onClick={resetDraftForNewInput}>
+                <RotateCcw aria-hidden="true" size={17} />
+                新規入力
               </button>
               <button
                 type="button"
